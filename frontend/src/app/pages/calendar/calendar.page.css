@@ -1,0 +1,81 @@
+.title { min-width: 210px; }
+
+/* ---------------- month view ---------------- */
+.month {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  padding: 0;
+  overflow: hidden;
+}
+.month-head {
+  background: #f8f9fb; padding: 8px; font-size: 12px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; border-bottom: 1px solid var(--border);
+}
+.month-cell {
+  position: relative; min-height: 118px; padding: 6px; border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border); cursor: pointer; display: flex; flex-direction: column; gap: 3px;
+}
+.month-cell:nth-child(7n) { border-right: none; }
+.month-cell:hover { background: #f5f9fe; }
+.month-cell.weekend { background: #fbfbfc; }
+.month-cell.closed { background: var(--closed-bg); }
+.month-cell.holiday { background: var(--holiday-bg); }
+.month-cell.other { opacity: 0.45; }
+.month-cell.today .day-num { background: var(--primary); color: #fff; }
+.cell-top { display: flex; justify-content: space-between; align-items: center; gap: 4px; }
+.day-num { font-weight: 600; min-width: 24px; height: 24px; border-radius: 12px; display: grid; place-items: center; }
+.hours { font-size: 11px; color: var(--muted); }
+.hours.special { color: var(--warn); font-weight: 600; }
+.holiday .hours.special { color: var(--holiday); }
+.note { font-size: 11px; color: var(--warn); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chips { display: flex; flex-direction: column; gap: 2px; }
+.chip {
+  display: flex; justify-content: space-between; gap: 4px; font-size: 11.5px; background: #fff;
+  border: 1px solid var(--border); border-left: 4px solid; border-radius: 4px; padding: 1px 5px;
+}
+.chip:hover { background: #eef4fb; }
+.chip-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.chip-time { color: var(--muted); white-space: nowrap; }
+.week-link {
+  position: absolute; bottom: 4px; right: 4px; display: none; font-size: 11px; padding: 0 6px;
+}
+.month-cell:hover .week-link { display: block; }
+
+/* ---------------- week view ---------------- */
+table.week { width: 100%; border-collapse: collapse; table-layout: fixed; min-width: 900px; }
+table.week th, table.week td { border: 1px solid var(--border); padding: 6px; vertical-align: top; }
+table.week thead th { background: #f8f9fb; text-align: left; font-weight: 600; }
+table.week th.today { box-shadow: inset 0 3px 0 var(--primary); }
+table.week th.holiday, table.week td.holiday { background: var(--holiday-bg); }
+table.week th.closed, table.week td.closed { background: var(--closed-bg); }
+.wd { font-size: 13px; }
+.emp-col { width: 180px; }
+.total-col { width: 80px; text-align: right; }
+.small-text { font-size: 11px; margin-left: 16px; }
+td.cell { cursor: pointer; height: 52px; }
+td.cell:hover { background: #f5f9fe; }
+.shift {
+  color: #fff; border-radius: 4px; padding: 3px 6px; font-size: 12px; font-weight: 600; margin-bottom: 2px;
+  display: flex; justify-content: space-between; text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+}
+.shift .h { font-weight: 400; opacity: 0.9; }
+.add { color: transparent; font-size: 18px; display: block; text-align: center; }
+td.cell:hover .add { color: var(--primary); }
+tfoot td { background: #f8f9fb; font-size: 12px; }
+
+/* ---------------- summary ---------------- */
+.summary { display: flex; flex-wrap: wrap; gap: 8px 24px; }
+.summary-item { display: flex; align-items: center; gap: 8px; }
+
+/* ---------------- absences ---------------- */
+.chip.absence { background: var(--abs-bg); color: var(--abs-fg); border-color: transparent; border-left: 4px solid var(--abs-fg); }
+.chip.absence .chip-time { color: inherit; opacity: 0.8; }
+.absence-block {
+  background: var(--abs-bg); color: var(--abs-fg); border-radius: 4px; padding: 3px 6px; font-size: 12px; font-weight: 600;
+  margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ---------------- drag & drop ---------------- */
+.chip[draggable='true'], .shift[draggable='true'] { cursor: grab; }
+.chip.dragging, .shift.dragging { opacity: 0.4; }
+.month-cell.drop-target, td.cell.drop-target { background: #dbeafe !important; box-shadow: inset 0 0 0 2px var(--primary); }

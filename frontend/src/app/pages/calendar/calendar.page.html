@@ -1,0 +1,211 @@
+<div class="page-header">
+  <div class="toolbar">
+    <h1 class="title">{{ title() }}</h1>
+    <button (click)="move(-1)" title="Previous">‹</button>
+    <button (click)="today()">Today</button>
+    <button (click)="move(1)" title="Next">›</button>
+    @if (loading()) { <span class="muted">Loading…</span> }
+  </div>
+  <div class="toolbar">
+    <div class="btn-group">
+      <button [class.active]="view() === 'month'" (click)="setView('month')">Month</button>
+      <button [class.active]="view() === 'week'" (click)="setView('week')">Week</button>
+    </div>
+    <button (click)="openAbsence(null, todayIso)" title="Sick leave, vacation (godišnji odmor), ...">+ Absence</button>
+    <button (click)="generateOpen.set(true)" title="Fill the month from a schedule rule">⚙ Generate {{ exportLabel() }}</button>
+    <button class="primary" (click)="exportExcel()" [disabled]="exporting()">
+      {{ exporting() ? 'Exporting…' : '⬇ Export ' + exportLabel() + ' to Excel' }}
+    </button>
+  </div>
+</div>
+
+@if (error()) { <div class="error">{{ error() }}</div> }
+@if (notice()) { <div class="notice">{{ notice() }} <button class="icon-btn" (click)="notice.set('')">×</button></div> }
+
+@if (view() === 'month') {
+  <div class="month card">
+    @for (wd of weekdaysShort; track wd) {
+      <div class="month-head">{{ wd }}</div>
+    }
+    @for (week of weeks(); track week[0]) {
+      @for (iso of week; track iso) {
+        @let info = dayMap().get(iso);
+        <div
+          class="month-cell"
+          [class.other]="isOtherMonth(iso)"
+          [class.weekend]="isWeekend(iso)"
+          [class.closed]="info?.closed"
+          [class.holiday]="info?.is_holiday"
+          [class.today]="iso === todayIso"
+          [class.drop-target]="dropTarget() === iso"
+          (click)="openDay(iso)"
+          (dragover)="dragOver($event, iso)"
+          (dragleave)="dragLeave($event)"
+          (drop)="drop($event, iso)"
+        >
+          <div class="cell-top">
+            <span class="day-num">{{ dayNum(iso) }}</span>
+            @if (info) {
+              <span class="hours" [class.special]="info.special">
+                {{ info.closed ? 'Closed' : info.open_time + '–' + info.close_time }}
+              </span>
+            }
+          </div>
+          @if (info?.note) { <div class="note" [title]="info!.note">{{ info!.note }}</div> }
+          <div class="chips">
+            @for (s of shiftsFor(iso); track s.id) {
+              <div class="chip" [style.borderLeftColor]="empColor(s.employee_id)" draggable="true"
+                   [class.dragging]="dragShift()?.id === s.id"
+                   (dragstart)="dragStart($event, s)" (dragend)="dragEnd()"
+                   (click)="$event.stopPropagation(); openDay(iso, s.id)"
+                   [title]="empName(s.employee_id) + ' ' + s.start_time + '–' + s.end_time + ' · drag to move, Ctrl+drag to copy'">
+                <span class="chip-name">{{ empName(s.employee_id, true) }}</span>
+                <span class="chip-time">{{ s.start_time }}–{{ s.end_time }}</span>
+              </div>
+            }
+            @for (a of absencesFor(iso); track a.id) {
+              <div class="chip absence" [attr.data-kind]="a.kind" (click)="$event.stopPropagation(); openAbsence(a)"
+                   [title]="empName(a.employee_id) + ' · ' + absenceShort[a.kind] + (a.note ? ' · ' + a.note : '')">
+                <span class="chip-name">{{ absenceIcon(a.kind) }} {{ empName(a.employee_id, true) }}</span>
+                <span class="chip-time">{{ absenceShort[a.kind] }}</span>
+              </div>
+            }
+          </div>
+          <button class="week-link small" (click)="$event.stopPropagation(); openWeek(iso)" title="Open this week">week ›</button>
+        </div>
+      }
+    }
+  </div>
+}
+
+@if (view() === 'week') {
+  <div class="card" style="padding:0">
+    <div class="table-wrap">
+      <table class="week">
+        <thead>
+          <tr>
+            <th class="emp-col">Employee</th>
+            @for (iso of weekDates(); track iso) {
+              @let info = dayMap().get(iso);
+              <th [class.today]="iso === todayIso" [class.holiday]="info?.is_holiday" [class.closed]="info?.closed">
+                <div class="wd">{{ weekdaysShort[$index] }} {{ dayNum(iso) }}.</div>
+                @if (info) {
+                  <div class="hours" [class.special]="info.special">{{ info.closed ? 'Closed' : info.open_time + '–' + info.close_time }}</div>
+                  @if (info.note) { <div class="note">{{ info.note }}</div> }
+                }
+              </th>
+            }
+            <th class="total-col">Week</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (e of rowEmployees(); track e.id) {
+            <tr>
+              <td class="emp-col">
+                <span class="dot" [style.background]="e.color"></span>
+                {{ e.first_name }} {{ e.last_name }}
+                @if (e.position) { <div class="muted small-text">{{ e.position }}</div> }
+              </td>
+              @for (iso of weekDates(); track iso) {
+                @let cell = cellShifts(iso, e.id);
+                @let absent = cellAbsence(iso, e.id);
+                <td class="cell" [class.closed]="dayMap().get(iso)?.closed" [class.holiday]="dayMap().get(iso)?.is_holiday"
+                    [class.drop-target]="dropTarget() === iso + '|' + e.id"
+                    (click)="cell.length ? openDay(iso, cell[0].id) : quickAdd(iso, e)"
+                    (dragover)="dragOver($event, iso, e.id)" (dragleave)="dragLeave($event)" (drop)="drop($event, iso, e.id)">
+                  @if (absent) {
+                    <div class="absence-block" [attr.data-kind]="absent.kind" [title]="absent.note ?? ''">
+                      {{ absenceIcon(absent.kind) }} {{ absenceShort[absent.kind] }}
+                    </div>
+                  }
+                  @for (s of cell; track s.id) {
+                    <div class="shift" [style.background]="e.color" draggable="true" [class.dragging]="dragShift()?.id === s.id"
+                         (dragstart)="dragStart($event, s)" (dragend)="dragEnd()"
+                         (click)="$event.stopPropagation(); openDay(iso, s.id)" title="Drag to move, Ctrl+drag to copy">
+                      {{ s.start_time }}–{{ s.end_time }}
+                      <span class="h">{{ s.hours }}h</span>
+                    </div>
+                  } @empty {
+                    @if (!absent) { <span class="add">+</span> }
+                  }
+                </td>
+              }
+              <td class="total-col"><strong>{{ weekTotal(e.id) }}</strong> h</td>
+            </tr>
+          } @empty {
+            <tr><td colspan="9" class="empty">No active employees. Add some on the Employees page.</td></tr>
+          }
+        </tbody>
+        <tfoot>
+          <tr>
+            <td class="emp-col"><strong>Total hours</strong></td>
+            @for (iso of weekDates(); track iso) {
+              <td><strong>{{ dayTotal(iso) }}</strong> h · {{ shiftsFor(iso).length }} 👤</td>
+            }
+            <td class="total-col"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+  <p class="muted">Tip: click an empty cell to add a shift with that day's working hours; click a shift to change or remove it.
+    Drag a shift to another day or employee to move it (hold Ctrl to copy).</p>
+}
+
+<div class="card">
+  <h2>Hours {{ view() === 'month' ? 'in ' + exportLabel() : 'this week' }}</h2>
+  <div class="summary">
+    @for (r of summaryRows(); track r.e.id) {
+      <div class="summary-item">
+        <span class="dot" [style.background]="r.e.color"></span>
+        <span>{{ r.e.first_name }} {{ r.e.last_name }}</span>
+        <strong>{{ r.hours }} h</strong>
+        <span class="muted">{{ r.days }} {{ r.days === 1 ? 'day' : 'days' }}{{ r.absent ? ' · ' + r.absent + ' absent' : '' }}</span>
+      </div>
+    } @empty {
+      <span class="muted">No employees.</span>
+    }
+  </div>
+  @if (view() === 'month') {
+    <p class="muted" style="margin:10px 0 0">Tip: drag a shift onto another day to move it (hold Ctrl to copy).</p>
+  }
+</div>
+
+@if (dialog(); as d) {
+  @if (dialogDay(); as day) {
+    <app-day-dialog
+      [day]="day"
+      [shifts]="shiftsFor(d.date)"
+      [employees]="employees()"
+      [editShiftId]="d.editShiftId"
+      [presetEmployeeId]="d.presetEmployeeId"
+      [absences]="absencesFor(d.date)"
+      (changed)="load()"
+      (addAbsence)="openAbsence(null, d.date, $event)"
+      (editAbsence)="openAbsence($event)"
+      (closed)="dialog.set(null)"
+    />
+  }
+}
+
+@if (absenceDialog(); as a) {
+  <app-absence-dialog
+    [employees]="employees()"
+    [absence]="a.absence"
+    [presetDate]="a.date"
+    [presetEmployeeId]="a.employeeId"
+    (saved)="absenceSaved($event)"
+    (deleted)="absenceDialog.set(null); load()"
+    (closed)="absenceDialog.set(null)"
+  />
+}
+
+@if (generateOpen()) {
+  <app-generate-dialog
+    [year]="anchor().getFullYear()"
+    [month]="anchor().getMonth() + 1"
+    [employees]="employees()"
+    (generated)="generated($event)"
+    (closed)="generateOpen.set(false)"
+  />
+}
