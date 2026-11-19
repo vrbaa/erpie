@@ -2,7 +2,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 backend/erpie.db
-frontend/node_modules/
+node_modules/
 frontend/dist/
 frontend/.angular/
 backend/.env
+.env.local
+.neon

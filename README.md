@@ -3,7 +3,7 @@
 Small ERP-style app for managing employees, opening hours and shift plans, with export to the
 "Evidencija radnog vremena" (šihterica) Excel template.
 
-- **Backend:** Python, FastAPI, SQLAlchemy, SQLite (`backend/erpie.db`, created automatically)
+- **Backend:** Python, FastAPI, SQLAlchemy, Neon Postgres (psycopg 3). Without `DATABASE_URL` it falls back to a local SQLite file `backend/erpie.db`
 - **Frontend:** Angular 22 (standalone components, signals)
 
 ## Run
@@ -34,7 +34,7 @@ Open http://localhost:4200. API docs: http://localhost:8000/docs
 | **Employees** | Create, edit and delete employees (name, OIB, position, contact, start date, calendar color, active flag, notes). |
 | **Schedule → Generate** | Fills a month from a schedule rule (default rule preselected, single picker). Preview grid per employee with free days, absences, closed days and a "working" count per day; click a day to change someone's first free day. Each employee's place in the rotation is stored, so the next month continues it. Closed days and absences are skipped. |
 | **Drag & drop** | Drag a shift to another day (month view) or another day/employee (week view) to move it; hold Ctrl to copy. Full-day shifts take the target day's working hours. |
-| **Absences** | Vacation (godišnji odmor), sick leave (bolovanje), paid/unpaid leave, other — date ranges per employee. Saving one removes that employee's shifts in the range; shifts can't be added on absent days. Shown in the calendar; yearly totals per employee. |
+| **Absences** | Vacation (godišnji odmor), sick leave (bolovanje), paid/unpaid leave, other - date ranges per employee. Saving one removes that employee's shifts in the range; shifts can't be added on absent days. Shown in the calendar; yearly totals per employee. |
 | **Schedule rules** | Two kinds. *Fixed weekly pattern*: tick work days per week over a 1–4 week cycle; employees start in different weeks (default rule: week 1 Mon/Thu/Sat, week 2 Tue/Wed/Fri/Sun, so two workers alternate with exactly one per day). *Rotating free days*: N free days in a row, moving M days later every week (e.g. 2 & 2: week 1 Mon+Tue, week 2 Wed+Thu, week 3 Fri+Sat, week 4 Sun+Mon, …), fixed or day hours, spread free days between employees, default rule. |
 | **Workdays** | Regular hours per weekday (default 13:00–23:00), special days that override them (e.g. 10:00–00:00, closed, public holiday) and the company name printed as "Poslodavac". |
 
@@ -69,7 +69,7 @@ The first admin is created from environment variables when the backend starts (a
 | `ADMIN_EMAIL` | Email of the bootstrap admin |
 | `ADMIN_PASSWORD` | Optional password for it (if unset, the admin must use Google) |
 | `GOOGLE_CLIENT_ID` | Optional, enables the Google button |
-| `DATABASE_URL` | Optional, defaults to local SQLite `backend/erpie.db` |
+| `DATABASE_URL` | Neon pooled Postgres URL. Locally `neon env pull` writes it to the repo-root `.env.local`, which the backend loads. Unset: local SQLite `backend/erpie.db` |
 | `COOKIE_SECURE` | `true` behind HTTPS (default `false`) |
 | `SESSION_DAYS` | Session length, default `30` |
 
@@ -80,27 +80,25 @@ set ADMIN_EMAIL=you@example.com
 set ADMIN_PASSWORD=choose-a-password
 ```
 
-## Deploy (Cloudflare Pages + PythonAnywhere)
+## Deploy (Cloudflare Pages + Render + Neon)
 
-Free setup: Angular on Cloudflare Pages, FastAPI + SQLite on a PythonAnywhere free account. The Pages Function `frontend/functions/api/[[path]].ts` proxies `/api/*` to PythonAnywhere, so the browser only talks to the pages.dev host and the session cookie is first-party.
+Free setup: Angular on Cloudflare Pages, FastAPI on a Render free web service (native Python runtime, `render.yaml`), data in Neon Postgres. The Pages Function `frontend/functions/api/[[path]].ts` proxies `/api/*` to Render, so the browser only talks to the pages.dev host and the session cookie is first-party.
 
-### Backend (PythonAnywhere)
+### 1. Database (Neon)
 
-1. Bash console: `git clone <repo> ~/Erpie`, `mkvirtualenv erpie --python=python3.13` (or the newest available), `pip install -r ~/Erpie/backend/requirements.txt`.
-2. Create `~/Erpie/backend/.env` from `backend/.env.example`. Optionally upload your local `erpie.db` to `~/Erpie/backend/` (Files tab).
-3. Web tab -> Add a new web app -> Manual configuration -> same Python version. Virtualenv: `/home/<user>/.virtualenvs/erpie`. Replace the contents of the WSGI file with:
-   ```python
-   import sys
-   sys.path.insert(0, '/home/<user>/Erpie/backend')
-   from wsgi import application
-   ```
-   Turn Force HTTPS on, then Reload.
-4. Check `https://<user>.pythonanywhere.com/api/health`.
-5. Update: `cd ~/Erpie && git pull && pip install -r backend/requirements.txt`, then Reload on the Web tab.
+`DATABASE_URL` is the pooled connection string of the production branch (host contains `-pooler`, `sslmode=require`). Get it with `neon env pull` (writes it to `.env.local`) or from the Neon console: Connect dialog, pooled connection on.
 
-Free tier notes: renew the web app monthly ("Run until 1 month from today" on the Web tab) or it stops; 100 CPU-seconds per day; outbound HTTP only to allow-listed domains (Google sign-in needs the Google cert endpoints on `googleapis.com`).
+Optional one-off copy of the local SQLite data into the empty database (prefers the direct URL, `DATABASE_URL_UNPOOLED`):
 
-### Frontend (Cloudflare Pages)
+```
+cd backend && python -m scripts.copy_sqlite_to_db [path/to/erpie.db]
+```
+
+### 2. Backend (Render)
+
+Push the repo to GitHub, then Render -> New -> Blueprint -> pick the repo. Fill in `DATABASE_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `GOOGLE_CLIENT_ID` (optional, may stay empty) when asked. The URL is `https://erpie-api.onrender.com` unless Render assigns another one. Check `<url>/api/health` returns `{"status":"ok"}`.
+
+### 3. Frontend (Cloudflare Pages)
 
 Create a Pages project with Git integration and these settings:
 
@@ -109,16 +107,21 @@ Create a Pages project with Git integration and these settings:
 | Root directory | `frontend` |
 | Build command | `npm run build` |
 | Output directory | `dist/frontend/browser` |
-| Env var `BACKEND_ORIGIN` | `https://<user>.pythonanywhere.com` |
+| Env var `BACKEND_ORIGIN` | `https://erpie-api.onrender.com` (the Render URL) |
 | Env var `NODE_VERSION` | `22` |
 
-### Google sign-in (optional)
+### 4. Google sign-in (optional)
 
-Google Cloud Console -> APIs & Services -> Credentials -> OAuth client ID -> Web application. Authorized JavaScript origins: `http://localhost:4200` and `https://<project>.pages.dev`. No redirect URI. Put the client id in `GOOGLE_CLIENT_ID` in `backend/.env`.
+Google Cloud Console -> APIs & Services -> Credentials -> OAuth client ID -> Web application. Authorized JavaScript origins: `http://localhost:4200` and `https://<project>.pages.dev`. No redirect URI. Put the client id in `GOOGLE_CLIENT_ID` on Render.
+
+### Free-tier notes
+
+- Render sleeps after 15 minutes idle; the first request afterwards takes about 30-60 s.
+- Neon free scales to zero when idle; the first query after that is slightly slower.
 
 ### Prod-like local run
 
 ```
-cd backend && pip install waitress && waitress-serve --port 8010 wsgi:application
+cd backend && python -m uvicorn app.main:app --port 8010 --proxy-headers --forwarded-allow-ips='*'
 cd frontend && npm run build && npx wrangler pages dev dist/frontend/browser --binding BACKEND_ORIGIN=http://localhost:8010
 ```

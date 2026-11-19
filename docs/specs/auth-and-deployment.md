@@ -7,9 +7,9 @@ Status: approved for implementation - 2026-11-19
 1. Nobody can see or change data without logging in.
 2. Users log in with email + password, or with "Sign in with Google".
 3. Invite-only: only users that exist in the `users` table (created by an admin) can log in. Google login works only for an email that already has a user row.
-4. Production deploy at zero cost: **Angular on Cloudflare Pages**, **FastAPI + SQLite on PythonAnywhere** (free tier), deployed separately.
+4. Production deploy at zero cost: **Angular on Cloudflare Pages**, **FastAPI on Render** (free web service, native Python runtime) with **Neon Postgres**, deployed separately.
 
-Non-goals: self-registration, password reset by email, multi-tenancy, 2FA, Postgres.
+Non-goals: self-registration, password reset by email, multi-tenancy, 2FA.
 
 ## Architecture
 
@@ -17,41 +17,41 @@ Non-goals: self-registration, password reset by email, multi-tenancy, 2FA, Postg
 Browser ──HTTPS──> https://<project>.pages.dev   (Cloudflare Pages)
                      /*      -> static Angular build (SPA fallback to index.html)
                      /api/*  -> Pages Function frontend/functions/api/[[path]].ts
-                                  └─ fetch() ──HTTPS──> https://<user>.pythonanywhere.com/api/*
-                                                          WSGI web app: a2wsgi(ASGIMiddleware(FastAPI))
-                                                          SQLite file on PythonAnywhere disk (persistent)
+                                  └─ fetch() ──HTTPS──> https://erpie-api.onrender.com/api/*
+                                                          uvicorn app.main:app (FastAPI, render.yaml)
+                                                          Neon Postgres (pooled connection, psycopg 3)
 ```
 
 - The Pages Function proxy keeps the API **same-origin** for the browser (as does the Angular dev proxy locally). So auth uses a first-party **httpOnly session cookie** set on the pages.dev host; no CORS, no third-party cookies, no tokens in JS.
 - Remove `CORSMiddleware` from `backend/app/main.py` (nothing calls the API cross-origin).
-- PythonAnywhere free accounts only run WSGI web apps (their ASGI support is a beta not confirmed for free accounts), so FastAPI runs behind `a2wsgi.ASGIMiddleware`. Startup logic must not depend on ASGI lifespan events (a2wsgi does not send them).
+- Render free web services sleep after 15 minutes idle (wake ~30-60 s), so the proxy sets no timeout. It forwards the client IP as `X-Forwarded-For` (from `CF-Connecting-IP`); uvicorn runs with `--proxy-headers --forwarded-allow-ips='*'`.
 
 ## Configuration (env vars, all read in one place: `backend/app/config.py`)
 
 | Var | Default (dev) | Prod |
 |---|---|---|
-| `DATABASE_URL` | unset -> SQLite `backend/erpie.db` (current behavior) | unset (same SQLite file, persistent on PythonAnywhere) |
+| `DATABASE_URL` | Neon pooled URL from `neon env pull` (repo-root `.env.local`); unset -> SQLite `backend/erpie.db` | Neon pooled URL (`...-pooler...`, `sslmode=require`) as a Render env var |
 | `GOOGLE_CLIENT_ID` | unset -> Google login disabled, button hidden | OAuth Web client id |
 | `ADMIN_EMAIL` | unset | bootstrap admin email |
 | `ADMIN_PASSWORD` | unset | optional bootstrap password (if unset the admin must use Google) |
 | `COOKIE_SECURE` | `false` | `true` |
 | `SESSION_DAYS` | `30` | `30` |
 
-`config.py` loads `backend/.env` first if it exists (`python-dotenv`, existing env vars win). That is how prod config is set on PythonAnywhere. `backend/.env` is git-ignored; commit `backend/.env.example`.
+`config.py` loads `backend/.env`, then the repo-root `.env.local` (written by `neon env pull`, dev only), with `python-dotenv` (existing env vars win). `postgres://` and `postgresql://` URLs are normalized to `postgresql+psycopg://`. In prod the vars are set in Render (see `render.yaml`). `backend/.env` is git-ignored; commit `backend/.env.example`.
 
 ## Backend (FastAPI, `backend/`)
 
 ### Dependencies (`requirements.txt`)
-`argon2-cffi`, `google-auth`, `requests` (transport used by google-auth), `a2wsgi`, `python-dotenv`. No Postgres driver.
+`argon2-cffi`, `google-auth`, `requests` (transport used by google-auth), `python-dotenv`, `psycopg[binary]` (Postgres driver, psycopg 3).
 
 ### Database
-- `database.py`: build engine from `config.DATABASE_URL` (SQLite, `check_same_thread=False`).
-- `scheduling.migrate()` uses `sqlalchemy.inspect(engine).get_columns(...)`.
-- Existing data: the user uploads their local `backend/erpie.db` to PythonAnywhere once (Files tab). No copy script.
+- `database.py`: engine from `config.DATABASE_URL`. SQLite keeps `check_same_thread=False`. Postgres (Neon pooled/PgBouncer endpoint, as the Neon guidance recommends for web apps): `pool_pre_ping=True`, `pool_recycle=300` (computes suspend when idle), small pool, `prepare_threshold=None` (no server-side prepared statements behind PgBouncer).
+- Schema is created by `Base.metadata.create_all` at startup; `scheduling.migrate()` uses `sqlalchemy.inspect` and works on both dialects. Session rows are removed by `ON DELETE CASCADE` on Postgres.
+- Existing data: one-off `backend/scripts/copy_sqlite_to_db.py` copies `backend/erpie.db` into an empty target (FK-safe order, resets sequences, refuses if employees exist). Run it once, ideally with the direct URL (`DATABASE_URL_UNPOOLED`).
+- Tests use in-memory SQLite; `tests/conftest.py` neutralizes `DATABASE_URL` and `COOKIE_SECURE`.
 
-### Startup and WSGI entry point
-- Move the body of `lifespan` into `def init_app() -> None` (create_all, migrate, defaults, rules, bootstrap admin), idempotent. `lifespan` calls it (uvicorn locally); `backend/wsgi.py` calls it once at import, then exposes `application = ASGIMiddleware(app)` from `a2wsgi`.
-- `backend/wsgi.py` must work when PythonAnywhere's own WSGI file does `sys.path.insert(0, '/home/<user>/Erpie/backend'); from wsgi import application`.
+### Startup
+- The body of `lifespan` lives in `def init_app() -> None` (create_all, migrate, defaults, rules, bootstrap admin), idempotent, called from `lifespan`.
 
 ### Models (`models.py`)
 ```
@@ -132,22 +132,17 @@ Follow existing patterns: standalone components, signals, `core/api.service.ts` 
 
 ## Deployment
 
-Remove the Render/Neon/Docker artifacts: `Dockerfile`, `.dockerignore`, `render.yaml`, `backend/scripts/copy_sqlite_to_db.py`, the `psycopg` dependency and Postgres URL normalization, and the "Deploy (Render + Neon)" README section.
+No Docker. The database is Neon Postgres (project branch `production`); use throwaway branches (`neon checkout <name> --create`) for testing.
 
 ### Cloudflare Pages (frontend)
 - `frontend/functions/api/[[path]].ts`: Pages Function proxy. `onRequest` builds `env.BACKEND_ORIGIN + url.pathname + url.search`, forwards method, body and headers (drop `host`; set `X-Forwarded-Host`/`X-Forwarded-Proto`), `redirect: 'manual'`, and returns the upstream response unchanged (status, body, all headers incl. `Set-Cookie`, `Content-Disposition`). If `BACKEND_ORIGIN` is unset return 500 JSON with a clear message. Minimal local types; no new npm dependencies except `wrangler` as a devDependency for local testing (pin an exact version).
 - SPA deep links: Pages serves `index.html` for unknown paths when the build has no `404.html` (confirm the Angular build output has none). Add `frontend/public/_headers`: `/index.html` -> `Cache-Control: no-cache`; hashed `/*.js` and `/*.css` -> long immutable cache.
-- Pages project settings (documented in README): Git integration, root directory `frontend`, build command `npm run build`, output directory `dist/frontend/browser`, env vars `BACKEND_ORIGIN=https://<user>.pythonanywhere.com` and `NODE_VERSION=22`.
+- Pages project settings (documented in README): Git integration, root directory `frontend`, build command `npm run build`, output directory `dist/frontend/browser`, env vars `BACKEND_ORIGIN=https://erpie-api.onrender.com` (the Render URL) and `NODE_VERSION=22`.
 
-### PythonAnywhere (backend)
-- `backend/.env.example` with `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `GOOGLE_CLIENT_ID`, `COOKIE_SECURE=true`.
-- README steps (short, exact):
-  1. Bash console: `git clone <repo> ~/Erpie`, `mkvirtualenv erpie --python=python3.13` (or newest available), `pip install -r ~/Erpie/backend/requirements.txt`.
-  2. Create `~/Erpie/backend/.env` from the example. Optionally upload local `erpie.db` to `~/Erpie/backend/`.
-  3. Web tab -> Add a new web app -> Manual configuration -> same Python version. Virtualenv `/home/<user>/.virtualenvs/erpie`. Edit the WSGI file to the 3 lines that import `application` from `backend/wsgi.py`. Force HTTPS on. Reload.
-  4. Check `https://<user>.pythonanywhere.com/api/health`.
-  5. Updating: `cd ~/Erpie && git pull && pip install -r backend/requirements.txt`, then Reload on the Web tab.
-  6. Free tier notes: the web app must be renewed monthly ("Run until 1 month from today" button) or it stops; 100 CPU-seconds/day allowance; outbound HTTP only to allow-listed domains (Google cert endpoints on `googleapis.com` are needed for Google sign-in).
+### Render (backend)
+- `render.yaml` (repo root): one web service `erpie-api`, `runtime: python`, `plan: free`, `rootDir: backend`, build `pip install -r requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'`, health check `/api/health`. Env: `PYTHON_VERSION` (pinned), `COOKIE_SECURE=true`, and `DATABASE_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `GOOGLE_CLIENT_ID` as `sync: false` (asked for at Blueprint creation).
+- README steps: push to GitHub, Render -> New -> Blueprint, fill env vars, check `/api/health`. Updates deploy on git push.
+- Free tier: sleeps after 15 min idle (first request ~30-60 s); Neon free scales to zero.
 - Google Cloud Console: OAuth client (Web application), Authorized JavaScript origins `http://localhost:4200` and `https://<project>.pages.dev`. No redirect URI.
 - Local dev: document `set ADMIN_EMAIL=...` / `backend/.env` before starting.
 
@@ -158,5 +153,5 @@ Remove the Render/Neon/Docker artifacts: `Dockerfile`, `.dockerignore`, `render.
 4. Admin creates a user, logs out, logs in as that user: no "Users" link, `/users` redirects, `GET /api/users` -> 403.
 5. Admin cannot demote/delete themselves (message shown).
 6. With `GOOGLE_CLIENT_ID` set, the Google button renders on `/login`; without it, no button and no divider.
-7. **Prod-like local run**: backend served through `wsgi.py` by a real WSGI server (e.g. `waitress-serve` installed only in a scratch venv, or `python -m wsgiref`), frontend via `npx wrangler pages dev dist/frontend/browser --binding BACKEND_ORIGIN=http://localhost:<port>`. In the browser at the wrangler URL: login, cookie set on the wrangler host, reload keeps session, CRUD works, Excel export downloads with the right filename, deep link `/employees` reload works, logout works.
+7. **Prod-like local run**: backend started with the Render start command (uvicorn), frontend via `npx wrangler pages dev dist/frontend/browser --binding BACKEND_ORIGIN=http://localhost:<port>`. In the browser at the wrangler URL: login, cookie set on the wrangler host, reload keeps session, CRUD works, Excel export downloads with the right filename, deep link `/employees` reload works, logout works.
 8. `python -m pytest` green; `npm run build` green with no new warnings.

@@ -12,7 +12,7 @@ from .workdays import ensure_defaults, resolve_days
 
 
 def init_app() -> None:
-    """Idempotent startup work. Called by lifespan (uvicorn) and by wsgi.py (no lifespan there)."""
+    """Idempotent startup work. Called from lifespan."""
     Base.metadata.create_all(engine)
     scheduling.migrate(engine)
     with SessionLocal() as db:
