@@ -1,3 +1,4 @@
+import { HttpResponse } from '@angular/common/http';
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { forkJoin } from 'rxjs';
 import {
@@ -40,6 +41,7 @@ export class CalendarPage {
   error = signal('');
   loading = signal(false);
   exporting = signal(false);
+  downloading = signal(false);
   dialog = signal<DialogState | null>(null);
   absenceDialog = signal<AbsenceDialogState | null>(null);
   generateOpen = signal(false);
@@ -369,19 +371,30 @@ export class CalendarPage {
       });
   }
 
+  print() {
+    window.print();
+  }
+
+  downloadPdf() {
+    this.downloading.set(true);
+    this.api.exportSchedule(this.view(), toIso(this.anchor())).subscribe({
+      next: (res) => {
+        saveFile(res, 'schedule.pdf');
+        this.downloading.set(false);
+      },
+      error: (err) => {
+        this.error.set(errorMessage(err));
+        this.downloading.set(false);
+      },
+    });
+  }
+
   exportExcel() {
     const a = this.anchor();
     this.exporting.set(true);
     this.api.exportMonth(a.getFullYear(), a.getMonth() + 1).subscribe({
       next: (res) => {
-        const cd = res.headers.get('Content-Disposition') ?? '';
-        const name = /filename="?([^"]+)"?/.exec(cd)?.[1] ?? 'sihterica.xlsx';
-        const url = URL.createObjectURL(res.body!);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = name;
-        link.click();
-        URL.revokeObjectURL(url);
+        saveFile(res, 'sihterica.xlsx');
         this.exporting.set(false);
       },
       error: (err) => {
@@ -390,6 +403,18 @@ export class CalendarPage {
       },
     });
   }
+}
+
+/** Save a downloaded blob under the server-provided file name. */
+function saveFile(res: HttpResponse<Blob>, fallback: string) {
+  const cd = res.headers.get('Content-Disposition') ?? '';
+  const name = /filename="?([^"]+)"?/.exec(cd)?.[1] ?? fallback;
+  const url = URL.createObjectURL(res.body!);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function isCopy(ev: DragEvent) {

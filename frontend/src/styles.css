@@ -118,3 +118,15 @@ td.actions button + button { margin-left: 4px; }
 .absence-badge[data-kind] { background: var(--abs-bg); color: var(--abs-fg); }
 .notice { display: flex; justify-content: space-between; align-items: center; background: #e3f4e8; color: #1e7a3d; padding: 6px 6px 6px 12px; border-radius: var(--radius); margin-bottom: 12px; }
 .notice .icon-btn { color: inherit; }
+
+/* ---------- print ---------- */
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  :root { --bg: #fff; font-size: 12px; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .sidebar, .page-header button, .page-header .btn-group, .notice, .error, .backdrop { display: none !important; }
+  .shell { display: block; min-height: 0; }
+  .content { padding: 0; }
+  .card { break-inside: auto; }
+  .page-header { margin-bottom: 8px; }
+}

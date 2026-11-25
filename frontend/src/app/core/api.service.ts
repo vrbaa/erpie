@@ -268,6 +268,14 @@ export class ApiService {
   }
 
   // export
+  exportSchedule(view: 'month' | 'week', day: string) {
+    return this.http.get(`${this.base}/export/schedule`, {
+      params: { view, day },
+      responseType: 'blob',
+      observe: 'response',
+    });
+  }
+
   exportMonth(year: number, month: number) {
     return this.http.get(`${this.base}/export/month`, {
       params: { year, month },

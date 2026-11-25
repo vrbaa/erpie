@@ -13,6 +13,10 @@
     </div>
     <button (click)="openAbsence(null, todayIso)" title="Sick leave, vacation (godišnji odmor), ...">+ Absence</button>
     <button (click)="generateOpen.set(true)" title="Fill the month from a schedule rule">⚙ Generate {{ exportLabel() }}</button>
+    <button (click)="print()" [disabled]="loading()" title="Print the schedule shown below">🖨 Print</button>
+    <button (click)="downloadPdf()" [disabled]="downloading()" title="Download the schedule shown below as PDF">
+      {{ downloading() ? 'Preparing…' : '⬇ Download PDF' }}
+    </button>
     <button class="primary" (click)="exportExcel()" [disabled]="exporting()">
       {{ exporting() ? 'Exporting…' : '⬇ Export ' + exportLabel() + ' to Excel' }}
     </button>

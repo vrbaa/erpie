@@ -181,3 +181,15 @@ def test_alternating_two_workers(client):
     # July continues: Jul 1 is in the week of Mon Jun 29 = week 1 again for that worker (Jun 1 + 4 weeks)
     nxt = {r["employee_id"]: r for r in client.get("/api/schedule/rotations", params={"year": 2026, "month": 7}).json()}
     assert nxt[week1_first]["first_off_date"] == "2026-06-29" and nxt[week1_first]["stored"]
+
+
+def test_schedule_pdf(client):
+    emp = _emp(client, "Željka", "Čović")
+    client.post("/api/shifts", json={"employee_id": emp["id"], "date": "2026-11-03",
+                                     "start_time": "13:00", "end_time": "23:00"})
+    for view, name in (("month", "schedule_2026_11.pdf"), ("week", "schedule_week_2026_11_02.pdf")):
+        r = client.get("/api/export/schedule", params={"view": view, "day": "2026-11-05"})
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"] == "application/pdf" and r.content.startswith(b"%PDF")
+        assert name in r.headers["content-disposition"]
+    assert client.get("/api/export/schedule", params={"view": "year", "day": "2026-11-05"}).status_code == 422

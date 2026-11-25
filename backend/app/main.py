@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Response
 from sqlalchemy import delete, select, update
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 from . import auth, config, hours, models, scheduling, schemas
 from .database import Base, SessionLocal, engine, get_db
 from .export import build_month_workbook
+from .schedule_pdf import build_schedule_pdf
 from .workdays import ensure_defaults, resolve_days
 
 
@@ -362,6 +364,15 @@ def export_month(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1, l
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@api.get("/api/export/schedule")
+def export_schedule(view: Literal["month", "week"] = "month", day: date = Query(ge=date(2000, 1, 1), le=date(2100, 12, 31)),
+                    db: Session = Depends(get_db)):
+    content = build_schedule_pdf(db, view, day)
+    stamp = f"{day:%Y_%m}" if view == "month" else f"week_{day - timedelta(days=day.weekday()):%Y_%m_%d}"
+    return Response(content, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="schedule_{stamp}.pdf"'})
 
 
 # ---------------------------------------------------------------- app assembly

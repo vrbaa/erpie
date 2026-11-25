@@ -79,3 +79,18 @@ tfoot td { background: #f8f9fb; font-size: 12px; }
 .chip[draggable='true'], .shift[draggable='true'] { cursor: grab; }
 .chip.dragging, .shift.dragging { opacity: 0.4; }
 .month-cell.drop-target, td.cell.drop-target { background: #dbeafe !important; box-shadow: inset 0 0 0 2px var(--primary); }
+
+/* ---------------- print ---------------- */
+@media print {
+  .title { min-width: 0; }
+  .month { overflow: visible; }
+  .month-cell { min-height: 80px; break-inside: avoid; }
+  .week-link, .add, p.muted, .page-header .muted { display: none !important; }
+  .chip { flex-wrap: wrap; }
+  .table-wrap { overflow: visible; }
+  table.week { min-width: 0; }
+  table.week tr { break-inside: avoid; }
+  .emp-col { width: 110px; }
+  .total-col { width: 55px; }
+  .shift { flex-wrap: wrap; text-shadow: none; }
+}

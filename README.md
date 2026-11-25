@@ -40,6 +40,10 @@ Open http://localhost:4200. API docs: http://localhost:8000/docs
 
 A closing/end time earlier than or equal to the start (e.g. `10:00–00:00`, `18:00–02:00`) means it runs past midnight.
 
+## Print and PDF
+
+On **Schedule**, **Print** opens the browser print dialog for the month or week on screen (A4 landscape), and **Download PDF** saves it as a file (`GET /api/export/schedule?view=month|week&day=YYYY-MM-DD`).
+
 ## Excel export
 
 `GET /api/export/month?year=2026&month=11` fills `backend/app/templates/sihterica_template.xlsx`
