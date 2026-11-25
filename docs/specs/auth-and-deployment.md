@@ -68,7 +68,7 @@ Tables are created by the existing `Base.metadata.create_all` at startup.
 - Session token: `secrets.token_urlsafe(32)`; store only its sha256. Cookie `erpie_session`: `HttpOnly`, `SameSite=Lax`, `Secure=COOKIE_SECURE`, `Path=/`, `Max-Age=SESSION_DAYS*86400`.
 - Dependency `current_user` (reads cookie, looks up unexpired session, user must be active; else 401 `{"detail": "Not authenticated"}`). Dependency `require_admin` (403 otherwise).
 - Expired sessions are deleted lazily (on login).
-- Brute force: in-process limiter, max 10 failed logins per email per 15 minutes -> 429. (Single instance on Render, so in-memory is enough.)
+- Brute force: in-process limiter, max 100 failed logins per email per 15 minutes -> 429. (Single instance on Render, so in-memory is enough.)
 - Bootstrap (called from `lifespan`): if `ADMIN_EMAIL` is set and no user with that email exists, create it as `admin` (hash `ADMIN_PASSWORD` if set). Never overwrite an existing user.
 - Google: `google.oauth2.id_token.verify_oauth2_token(credential, google.auth.transport.requests.Request(), GOOGLE_CLIENT_ID)`. Require `email_verified`. Find user by `google_sub`, else by lowercase email (then store `google_sub`). Unknown/inactive -> 403 `"No access for this Google account. Ask an admin to add you."`.
 - Login error messages never reveal whether the email exists (`"Invalid email or password"`).
@@ -149,7 +149,7 @@ No Docker. The database is Neon Postgres (project branch `production`); use thro
 ## Acceptance (verified end to end)
 1. Fresh DB + `ADMIN_EMAIL/ADMIN_PASSWORD` -> open app -> redirected to `/login` -> log in -> calendar loads; reload keeps the session.
 2. `curl /api/employees` without cookie -> 401. `/api/health`, `/api/auth/config` -> 200.
-3. Wrong password -> error text; 11th failed try -> "Too many attempts".
+3. Wrong password -> error text; 101st failed try -> "Too many attempts".
 4. Admin creates a user, logs out, logs in as that user: no "Users" link, `/users` redirects, `GET /api/users` -> 403.
 5. Admin cannot demote/delete themselves (message shown).
 6. With `GOOGLE_CLIENT_ID` set, the Google button renders on `/login`; without it, no button and no divider.

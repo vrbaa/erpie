@@ -14,7 +14,7 @@ from . import config, models, schemas
 from .database import get_db
 
 COOKIE_NAME = "erpie_session"
-MAX_FAILED_LOGINS = 10
+MAX_FAILED_LOGINS = 100
 FAILED_WINDOW_SECONDS = 15 * 60
 
 router = APIRouter()
